@@ -6,7 +6,6 @@ import cffi, glob, os, inspect, pickle, warnings
 import scipy.optimize as op
 from scipy.interpolate import InterpolatedUnivariateSpline as IUS
 import george
-from classy import Class
 
 #Create the CFFI library
 hmf_dir = os.path.dirname(__file__)
@@ -34,7 +33,7 @@ def _dc(x):
 
 class hmf_emulator(Aemulator):
 
-    def __init__(self):
+    def __init__(self, use_class=True, tinker=False):
         Aemulator.__init__(self)
         self.loaded_data = False
         self.built       = False
@@ -43,6 +42,8 @@ class hmf_emulator(Aemulator):
         self.build_emulator()
         self.train_emulator()
         self.cosmology_is_set = False
+        self.use_class = use_class
+        self.tinker = tinker
 
     def load_data(self, path_to_training_data_directory = None):
         """
@@ -209,38 +210,39 @@ class hmf_emulator(Aemulator):
         :return:
             None
         """
-        try:
-            from classy import Class
-        except ImportError:
-            print("Class not installed. Cannot compute the mass function "+
+        if self.use_class:
+            try:
+                from classy import Class
+            except ImportError:
+                print("Class not installed. Cannot compute the mass function "+
                   "directly, only predict "+
                   "parameters from the GPs using the predict() function.")
-            return
+                return
+            #Set up a CLASS dictionary
+            class_cosmology = {
+                'output': 'mPk',
+                'H0':           params['H0'],
+                'ln10^{10}A_s': params['ln10As'],
+                'n_s':          params['n_s'],
+                'w0_fld':       params['w0'],
+                'wa_fld':       0.0,
+                'omega_b':      params['omega_b'],
+                'omega_cdm':    params['omega_cdm'],
+                'Omega_Lambda': 1 - params['omega_cdm'],
+                'N_eff':        params['N_eff'],
+                'P_k_max_1/Mpc': 10.,
+                'z_max_pk':      5.03
+            }
+            #Seed splines in CLASS
+            cc = Class()
+            cc.set(class_cosmology)
+            cc.compute()
+            #Make everything attributes
+            self.cc = cc
 
         self.mf_slopes_and_intercepts = self.predict(params)
-        #Set up a CLASS dictionary
         self.h = params['H0']/100.
         self.Omega_m = (params["omega_b"]+params["omega_cdm"])/self.h**2
-        class_cosmology = {
-            'output': 'mPk',
-            'H0':           params['H0'],
-            'ln10^{10}A_s': params['ln10As'],
-            'n_s':          params['n_s'],
-            'w0_fld':       params['w0'],
-            'wa_fld':       0.0,
-            'omega_b':      params['omega_b'],
-            'omega_cdm':    params['omega_cdm'],
-            'Omega_Lambda': 1 - self.Omega_m,
-            'N_eff':        params['N_eff'],
-            'P_k_max_1/Mpc': 10.,
-            'z_max_pk':      5.03
-        }
-        #Seed splines in CLASS
-        cc = Class()
-        cc.set(class_cosmology)
-        cc.compute()
-        #Make everything attributes
-        self.cc = cc
         self.k = np.logspace(-5, 1, num=1000) # Mpc^-1 comoving
         self.M = np.logspace(10, 16.5, num=1000) # Msun/h
         self.computed_sigma2    = {}
@@ -281,10 +283,13 @@ class hmf_emulator(Aemulator):
             self.computed_sigma2[z]    = sigma2
             self.computed_dsigma2dM[z] = dsigma2dM
             self.computed_pk[z] = p
+            if z == 0:
+                np.savetxt('pk_aem.dat', [k, p])
             continue
         return
 
-    def dndM(self, Masses, redshifts):
+    def dndM(self, Masses, redshifts,
+            sigma_funcs=None):
         if not self.cosmology_is_set:
             raise Exception("Must set_cosmology() first.")
         Masses    = np.atleast_1d(Masses)
@@ -300,18 +305,34 @@ class hmf_emulator(Aemulator):
         if any(redshifts > 3):
             print("Warning: redshift greather than 3. Accuracy not guaranteed.")
 
-        self._compute_sigma(redshifts)
+        if sigma_funcs is None:
+            if not self.use_class:
+                raise ValueError("If sigma_funcs are not provided"
+                                    "Class must be used (set use_class=True)")
+            self._compute_sigma(redshifts)
+        else:
+            sfunc, dsfunc = sigma_funcs
+        if self.tinker:
+            d, e, f, g = 1.97, 1.00, 0.51, 1.228
+            d, e, f, g = 0.186, 1.47, 2.57, 1.19
         Omega_m = self.Omega_m
         lnMasses = np.log(Masses)
         NM = len(Masses)
         Nz = len(redshifts)
         dndM_out = np.zeros((Nz, NM))
         for i,z in enumerate(redshifts):
-            d,e,f,g = self.predict_massfunction_parameters(z)
-            sigma2_spline    = IUS(np.log(self.M), self.computed_sigma2[z])
-            dsigma2dM_spline = IUS(np.log(self.M), self.computed_dsigma2dM[z])
-            sigma2    = sigma2_spline(lnMasses)
-            dsigma2dM = dsigma2dM_spline(lnMasses)
+            if not self.tinker:
+                d,e,f,g = self.predict_massfunction_parameters(z)
+            if sigma_funcs is None:
+                sigma2_spline    = IUS(np.log(self.M), self.computed_sigma2[z])
+                dsigma2dM_spline = IUS(np.log(self.M), self.computed_dsigma2dM[z])
+                sigma2    = sigma2_spline(lnMasses)
+                dsigma2dM = dsigma2dM_spline(lnMasses)
+                if z == 0:
+                    np.savetxt('sigmas_aem.dat', [Masses, sigma2, dsigma2dM])
+            else:
+                sigma2 = sfunc(lnMasses, z)
+                dsigma2dM = dsfunc(lnMasses, z)
             output = np.zeros_like(Masses)
             _lib.dndM_sigma2_precomputed(_dc(Masses), _dc(sigma2), _dc(dsigma2dM), NM, Omega_m,
                                          d, e, f, g, _dc(output))
