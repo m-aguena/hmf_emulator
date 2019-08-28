@@ -40,7 +40,7 @@ def execute(block, config):
         Neff is HADRCODED with fixed value of 3.0!
     '''
 
-    cosm = {"N_eff":3.0}
+    '''
     cosm_dic = {
         'H0':'h0',
         'As':'A_s',
@@ -52,9 +52,19 @@ def execute(block, config):
             }
     for n, p in cosm_dic.items():
         cosm[n] = block[names.cosmological_parameters, p]
-    cosm['H0'] *= 100.
-    cosm['omega_cdm'] = cosm['omega_m']-cosm['omega_b']
-    cosm['ln10As'] = np.log10(cosm['As']*1e10)
+    '''
+    cosm = {n:block[names.cosmological_parameters, n]
+        for n in ('h0','A_s','n_s','w','omega_b','omega_m',)}
+
+    cosm['N_eff'] = 3.0
+    cosm['w0'] = cosm['w']
+    cosm['omega_cdm'] = (cosm['omega_m']-cosm['omega_b'])*cosm['h0']**2
+    cosm['omega_b'] = cosm['omega_b']*cosm['h0']**2
+    cosm['H0'] = 100.*cosm['h0']
+    cosm['ln10As'] = np.log10(cosm['A_s']*1e10)
+
+#    "omega_b": (OmB)*h**2,
+#    "omega_cdm": (OmM-OmB)*h**2,
 
     print('cosm:',cosm)
         
@@ -66,7 +76,7 @@ def execute(block, config):
     z = block[sigma_dir, 'z']
 
     # make sigma(M) function for emulator
-    sig2 = block[sigma_dir, 'sigma2']
+    sig2 = block[sigma_dir, 'sigma2'].T
     sig2_interp = RectBivariateSpline(m, z, sig2)
 
     # first approximation of dsig2/dM, will have to come from sigma(M) in the future
@@ -75,7 +85,7 @@ def execute(block, config):
     dsig2_interp = RectBivariateSpline(mm, z, dsig2)
 
     use_class, sigma_funcs = False, (sig2_interp, dsig2_interp)
-    #use_class, sigma_funcs = True, None
+    use_class, sigma_funcs = True, None
 
     aem = hmf.hmf_emulator(use_class=use_class)
     aem.set_cosmology(cosm)
