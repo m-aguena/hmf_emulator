@@ -33,7 +33,7 @@ def _dc(x):
 
 class hmf_emulator(Aemulator):
 
-    def __init__(self, use_class=True, tinker=False):
+    def __init__(self, use_class=True, default_tinker=False):
         Aemulator.__init__(self)
         self.loaded_data = False
         self.built       = False
@@ -43,7 +43,7 @@ class hmf_emulator(Aemulator):
         self.train_emulator()
         self.cosmology_is_set = False
         self.use_class = use_class
-        self.tinker = tinker
+        self.default_tinker = default_tinker
 
     def load_data(self, path_to_training_data_directory = None):
         """
@@ -312,7 +312,7 @@ class hmf_emulator(Aemulator):
             self._compute_sigma(redshifts)
         else:
             sfunc, dsfunc = sigma_funcs
-        if self.tinker:
+        if self.default_tinker:
             d, e, f, g = 1.97, 1.00, 0.51, 1.228
         Omega_m = self.Omega_m
         lnMasses = np.log(Masses)
@@ -320,7 +320,7 @@ class hmf_emulator(Aemulator):
         Nz = len(redshifts)
         dndM_out = np.zeros((Nz, NM))
         for i,z in enumerate(redshifts):
-            if not self.tinker:
+            if not self.default_tinker:
                 d,e,f,g = self.predict_massfunction_parameters(z)
             if sigma_funcs is None:
                 sigma2, dsigma2dM = self._internal_sigmas(lnMasses, z)
