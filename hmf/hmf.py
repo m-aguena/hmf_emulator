@@ -323,12 +323,7 @@ class hmf_emulator(Aemulator):
             if not self.tinker:
                 d,e,f,g = self.predict_massfunction_parameters(z)
             if sigma_funcs is None:
-                sigma2_spline    = IUS(np.log(self.M), self.computed_sigma2[z])
-                dsigma2dM_spline = IUS(np.log(self.M), self.computed_dsigma2dM[z])
-                sigma2    = sigma2_spline(lnMasses)
-                dsigma2dM = dsigma2dM_spline(lnMasses)
-                if z == 0:
-                    np.savetxt('sigmas_aem.dat', [Masses, sigma2, dsigma2dM])
+                sigma2, dsigma2dM = self._internal_sigmas(lnMasses, z)
             else:
                 sigma2 = sfunc(lnMasses, z)
                 dsigma2dM = dsfunc(lnMasses, z)
@@ -340,6 +335,11 @@ class hmf_emulator(Aemulator):
         if Nz == 1:
             return dndM_out.flatten()
         return dndM_out
+
+    def _internal_sigmas(self, lnMasses, z):
+        sigma2_spline    = IUS(np.log(self.M), self.computed_sigma2[z])
+        dsigma2dM_spline = IUS(np.log(self.M), self.computed_dsigma2dM[z])
+        return sigma2_spline(lnMasses), dsigma2dM_spline(lnMasses)
 
     def n_in_bins(self, Mass_bin_edges, redshifts):
         if not self.cosmology_is_set:
