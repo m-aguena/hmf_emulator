@@ -314,7 +314,6 @@ class hmf_emulator(Aemulator):
             sfunc, dsfunc = sigma_funcs
         if self.tinker:
             d, e, f, g = 1.97, 1.00, 0.51, 1.228
-            d, e, f, g = 0.186, 1.47, 2.57, 1.19
         Omega_m = self.Omega_m
         lnMasses = np.log(Masses)
         NM = len(Masses)
