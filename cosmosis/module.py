@@ -20,6 +20,7 @@ def setup(options):
 
 rho_c = 2.775e11
 log_rho_c_4pi_o3_r8 = np.log10(8**3 * rho_c * 4 * np.pi / 3.)
+ln10 = np.log(10.)
 def execute(block, config):
     '''
     Note
@@ -75,21 +76,25 @@ def execute(block, config):
     m = block[sigma_dir, 'm']
     z = block[sigma_dir, 'z']
 
+    print m
     # make sigma(M) function for emulator
-    sig2 = block[sigma_dir, 'sigma2'].T
-    sig2_interp = RectBivariateSpline(m, z, sig2)
+    sig2 = block[sigma_dir, 'sigma2']#.T
+    print sig2.shape
+    sig2_interp = RectBivariateSpline(m*ln10, z, sig2)
+
 
     # first approximation of dsig2/dM, will have to come from sigma(M) in the future
-    dsig2 = np.array([y/x for y, x in zip((sig2[1:]-sig2[:-1]), (m[1:]-m[:-1]))])
     mm = .5*(m[:-1]+m[1:])
-    dsig2_interp = RectBivariateSpline(mm, z, dsig2)
+    dsig2 = np.array([(y/x)/(ln10*10**xm) for y, x, xm 
+            in zip((sig2[1:]-sig2[:-1]), (m[1:]-m[:-1]), mm)])
+    dsig2_interp = RectBivariateSpline(mm*ln10, z, dsig2)
 
     use_class, sigma_funcs = False, (sig2_interp, dsig2_interp)
-    use_class, sigma_funcs = True, None
+    #use_class, sigma_funcs = True, None
 
-    aem = hmf.hmf_emulator(use_class=use_class)
+    aem = hmf.hmf_emulator(use_class=use_class, default_tinker=True)
     aem.set_cosmology(cosm)
-    dndlnM = aem.dndM(10**m, z, sigma_funcs)#*(10**m)
+    dndlnM = aem.dndM(10**m, z, sigma_funcs)*(10**m)
 
     print dndlnM.shape
     block["mf", "mf" ] = dndlnM
