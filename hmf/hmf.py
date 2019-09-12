@@ -33,7 +33,7 @@ def _dc(x):
 
 class hmf_emulator(Aemulator):
 
-    def __init__(self, use_class=True, default_tinker=False):
+    def __init__(self, use_class=True):
         Aemulator.__init__(self)
         self.loaded_data = False
         self.built       = False
@@ -43,7 +43,6 @@ class hmf_emulator(Aemulator):
         self.train_emulator()
         self.cosmology_is_set = False
         self.use_class = use_class
-        self.default_tinker = default_tinker
 
     def load_data(self, path_to_training_data_directory = None):
         """
@@ -251,14 +250,17 @@ class hmf_emulator(Aemulator):
         self.cosmology_is_set = True
         return
 
-    def predict_massfunction_parameters(self, redshifts):
-        e0,f0,g0,d1,e1,g1 = self.mf_slopes_and_intercepts
-        d0, f1 = [ 2.39279115, 0.11628991]
-        x = 1./(1+redshifts)-0.5
-        d = d0 + x*d1
-        e = e0 + x*e1
-        f = f0 + x*f1
-        g = g0 + x*g1
+    def predict_massfunction_parameters(self, redshifts, default_tinker=False):
+        if default_tinker:
+            d, e, f, g = 1.97, 1.00, 0.51, 1.228
+        else:
+            e0,f0,g0,d1,e1,g1 = self.mf_slopes_and_intercepts
+            d0, f1 = [ 2.39279115, 0.11628991]
+            x = 1./(1+redshifts)-0.5
+            d = d0 + x*d1
+            e = e0 + x*e1
+            f = f0 + x*f1
+            g = g0 + x*g1
         return np.array([d, e, f, g]).flatten()
 
     def _compute_sigma(self, redshifts):
@@ -289,7 +291,7 @@ class hmf_emulator(Aemulator):
         return
 
     def dndM(self, Masses, redshifts,
-            sigma_funcs=None):
+            default_tinker=False, sigma_funcs=None):
         if not self.cosmology_is_set:
             raise Exception("Must set_cosmology() first.")
         Masses    = np.atleast_1d(Masses)
@@ -310,23 +312,17 @@ class hmf_emulator(Aemulator):
                 raise ValueError("If sigma_funcs are not provided"
                                     "Class must be used (set use_class=True)")
             self._compute_sigma(redshifts)
-        else:
-            sfunc, dsfunc = sigma_funcs
-        if self.default_tinker:
-            d, e, f, g = 1.97, 1.00, 0.51, 1.228
         Omega_m = self.Omega_m
         lnMasses = np.log(Masses)
         NM = len(Masses)
         Nz = len(redshifts)
         dndM_out = np.zeros((Nz, NM))
         for i,z in enumerate(redshifts):
-            if not self.default_tinker:
-                d,e,f,g = self.predict_massfunction_parameters(z)
+            d, e, f, g = self.predict_massfunction_parameters(z, default_tinker=default_tinker)
             if sigma_funcs is None:
                 sigma2, dsigma2dM = self._internal_sigmas(lnMasses, z)
             else:
-                sigma2 = sfunc(lnMasses, z)
-                dsigma2dM = dsfunc(lnMasses, z)
+                sigma2, dsigma2dM = sigma_funcs[0](lnMasses, z), sigma_funcs[1](lnMasses, z)
             output = np.zeros_like(Masses)
             _lib.dndM_sigma2_precomputed(_dc(Masses), _dc(sigma2), _dc(dsigma2dM), NM, Omega_m,
                                          d, e, f, g, _dc(output))
