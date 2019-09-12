@@ -8,6 +8,24 @@ print sys.path
 import hmf
 
 mf_block_name = "mass_function_aem"
+def set_vector(options, vmin, vmax, dv, vec, default_vec=None):
+    """Read a vector-valued parameter from the parameter file either directly or via min,max,n"""
+
+    if options.has_value(option_section, vec):
+        return np.array(options[option_section, vec])
+    elif options.has_value(option_section, vmin)\
+            and options.has_value(option_section, vmax)\
+            and options.has_value(option_section, dv):
+        xmin = options[option_section, vmin]
+        xmax = options[option_section, vmax]
+        dx = options[option_section, dv]
+
+        return np.arange(xmin, xmax, dx)
+    else:
+        if default_vec is None:
+            raise ValueError("vec or (vmin, vmax, n) or default vec must be provided")
+        else:
+            return default_vec
 
 def setup(options):
 
@@ -21,6 +39,13 @@ def setup(options):
 
         # printout settings
         verbose = int(options.get_bool(option_section, "verbose", False))
+
+        # Get vectors to interpolate mass function:
+        z_vec = set_vector(options, "zmin", "zmax", "dz", "z",
+                            default_vec=np.linspace(0, 2, 30))
+        logm_vec = set_vector(options, "logmmin", "logmmax", "dlogm", "logm",
+                            default_vec=np.linspace(12, 16.5, 40))
+        m_vec = 10**logm_vec
 
     return config
 
@@ -88,15 +113,15 @@ def execute(block, config):
     dsig2_interp = RectBivariateSpline(sig_logm*ln10, sig_z, dsigma2dm)
 
     # Get dndlnM from aemulator
-    m, z = sig_m, sig_z
-    dndlnM = aem.dndM(m, z, sigma_funcs=(sig2_interp, dsig2_interp),
-                default_tinker=config.default_tinker)*m
+    dndlnM = aem.dndM(config.m_vec, config.z_vec,
+                sigma_funcs=(sig2_interp, dsig2_interp),
+                default_tinker=config.default_tinker)*config.m_vec
 
     if config.verbose:
         print dndlnM.shape
 
     # We save the grid dndlnM(logM,z)
-    block.put_grid(mf_block_name, "z", z, "logm", np.log10(m), "dndlnm", dndlnM)
+    block.put_grid(mf_block_name, "z", config.z_vec, "logm", config.logm_vec, "dndlnm", dndlnM)
 
     #We tell CosmoSIS that everything went fine by returning zero
     return 0
